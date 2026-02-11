@@ -25,7 +25,7 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("config load failed: %v", err)
+		logger.Error("config load failed", "error", err)
 	}
 
 	clientset, err := k8s.NewClient(cfg)

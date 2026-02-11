@@ -11,7 +11,7 @@
 
 In the Dockerfile, stdout is duplicated to a file using `tee` so a sidecar collector can tail it.
 
-In the sidecar manifest, the collector's `filelog` receiver watches `/var/log/agent/*.log` and starts at end to avoid replay on restart.
+In the Helm deployment (`deploy/helm/k8s-logging-agent`), the collector sidecar uses `filelog` to watch `/var/log/agent/agent.log` and starts at end to avoid replay on restart.
 5. Start the stream manager queue worker.
 6. Start the pod watcher and forward events to the stream manager.
 

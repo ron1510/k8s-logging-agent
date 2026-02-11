@@ -1,0 +1,40 @@
+image:
+  repository: k8s-logging-agent
+  tag: dev
+  pullPolicy: IfNotPresent
+
+collector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.145.0"
+    pullPolicy: IfNotPresent
+  config: |-
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    receivers:
+      filelog:
+        include:
+          - {{ .Values.sharedVolume.mountPath }}/agent.log
+        start_at: end
+        include_file_path: true
+        include_file_name: true
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch: {}
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      extensions: [health_check]
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, batch]
+          exporters: [debug]
+
+pdb:
+  enabled: false

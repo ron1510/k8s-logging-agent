@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-echo-a
+  labels:
+    app: demo-echo-a
+    monitor-logs: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-echo-a
+  template:
+    metadata:
+      labels:
+        app: demo-echo-a
+        monitor-logs: "true"
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              i=0
+              while true; do
+                echo "demo-echo-a line=$i ts=$(date -Iseconds)"
+                i=$((i+1))
+                sleep 2
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-echo-b
+  labels:
+    app: demo-echo-b
+    monitor-logs: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-echo-b
+  template:
+    metadata:
+      labels:
+        app: demo-echo-b
+        monitor-logs: "true"
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              i=0
+              while true; do
+                echo "demo-echo-b line=$i ts=$(date -Iseconds)"
+                i=$((i+1))
+                sleep 3
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-ignore
+  labels:
+    app: demo-ignore
+    monitor-logs: "false"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-ignore
+  template:
+    metadata:
+      labels:
+        app: demo-ignore
+        monitor-logs: "false"
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              i=0
+              while true; do
+                echo "demo-ignore line=$i ts=$(date -Iseconds)"
+                i=$((i+1))
+                sleep 5
+              done
