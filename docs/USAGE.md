@@ -111,7 +111,34 @@ powershell -ExecutionPolicy Bypass -File .\deploy\helm\install-production.ps1 `
   -OtlpEndpoint otel-gateway.observability.svc.cluster.local:4317
 ```
 
-## 7. Troubleshooting
+## 7. Horizontal Sharding
+
+The agent supports static shard ownership by pod UID hash:
+
+- `SHARD_TOTAL`: total shard count
+- `SHARD_ORDINAL`: this pod's shard index (0-based)
+
+Notes:
+
+- If `SHARD_TOTAL=1`, sharding is effectively disabled.
+- If `SHARD_TOTAL>1`, you must provide `SHARD_ORDINAL` or run with StatefulSet-style pod names that end with `-<ordinal>`.
+- Standard Deployment pod names are not stable ordinals, so for multi-replica sharding use explicit ordinals or StatefulSet.
+
+Example (manual static shards):
+
+```powershell
+helm upgrade --install k8s-logging-agent-a deploy/helm/k8s-logging-agent `
+  --namespace observability `
+  --set env[3].name=SHARD_TOTAL --set env[3].value=2 `
+  --set env[4].name=SHARD_ORDINAL --set env[4].value=0
+
+helm upgrade --install k8s-logging-agent-b deploy/helm/k8s-logging-agent `
+  --namespace observability `
+  --set env[3].name=SHARD_TOTAL --set env[3].value=2 `
+  --set env[4].name=SHARD_ORDINAL --set env[4].value=1
+```
+
+## 8. Troubleshooting
 
 `ImagePullBackOff` for collector:
 - Ensure collector tag is valid. Recommended: `0.145.0` (without `v`).
@@ -126,7 +153,7 @@ Agent running but no collector output:
   - `kubectl -n observability get configmap k8s-logging-agent-collector -o yaml`
 - Check collector logs in follow mode.
 
-## 8. Cleanup
+## 9. Cleanup
 
 Remove workloads:
 

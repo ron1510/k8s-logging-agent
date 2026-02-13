@@ -107,8 +107,13 @@ env:
     valueFrom:
       fieldRef:
         fieldPath: metadata.namespace
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
   - name: LABEL_SELECTOR
     value: "monitor-logs=true"
+extraEnv: []
 
 livenessProbe: {}
 readinessProbe: {}

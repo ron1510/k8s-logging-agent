@@ -4,17 +4,16 @@ package sink
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"kubernetesLoggerAgent/internal/config"
 	"kubernetesLoggerAgent/internal/metrics"
 	"kubernetesLoggerAgent/internal/streamer"
-
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // Stdout prints log entries to stdout in a structured, readable format.
@@ -42,9 +41,7 @@ func NewStdout(cfg config.Config, logger *slog.Logger) *Stdout {
 // Emit prints a single log entry without blocking the caller.
 func (s *Stdout) Emit(ctx context.Context, entry streamer.LogEntry) {
 	s.once.Do(s.start)
-	ns, pod, container := extractK8s(entry.Attributes)
-	line := fmt.Sprintf("AGENT_FORWARD ts=%s ns=%s pod=%s container=%s msg=%q\n",
-		entry.Timestamp.Format(time.RFC3339Nano), ns, pod, container, entry.Body)
+	line := buildLine(entry)
 	select {
 	case s.queue <- line:
 	default:
@@ -53,20 +50,28 @@ func (s *Stdout) Emit(ctx context.Context, entry streamer.LogEntry) {
 	}
 }
 
-// extractK8s extracts namespace, pod, and container from attributes.
-func extractK8s(attrs []attribute.KeyValue) (string, string, string) {
-	var ns, pod, container string
-	for _, kv := range attrs {
-		switch string(kv.Key) {
-		case "k8s.namespace.name":
-			ns = kv.Value.AsString()
-		case "k8s.pod.name":
-			pod = kv.Value.AsString()
-		case "k8s.container.name":
-			container = kv.Value.AsString()
-		}
+func buildLine(entry streamer.LogEntry) string {
+	var b strings.Builder
+	// Fixed prefix + timestamp + labels + message, plus a small margin.
+	b.Grow(len(entry.Body) + 128)
+	b.WriteString("AGENT_FORWARD ts=")
+	b.WriteString(entry.Timestamp.Format(time.RFC3339Nano))
+	b.WriteString(" ns=")
+	b.WriteString(entry.Namespace)
+	b.WriteString(" pod=")
+	b.WriteString(entry.PodName)
+	b.WriteString(" container=")
+	b.WriteString(entry.Container)
+	b.WriteString(" release=")
+	if entry.Release != "" {
+		b.WriteString(entry.Release)
+	} else {
+		b.WriteString("unknown")
 	}
-	return ns, pod, container
+	b.WriteString(" msg=")
+	b.WriteString(strconv.Quote(entry.Body))
+	b.WriteByte('\n')
+	return b.String()
 }
 
 func (s *Stdout) start() {

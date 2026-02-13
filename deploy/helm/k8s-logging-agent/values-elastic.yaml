@@ -1,0 +1,50 @@
+collector:
+  config: |-
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    receivers:
+      filelog:
+        include:
+          - {{ .Values.sharedVolume.mountPath }}/agent.log
+        start_at: beginning
+        operators:
+          - type: regex_parser
+            regex: '^AGENT_FORWARD ts=(?P<ts>[^ ]+) ns=(?P<ns>[^ ]+) pod=(?P<pod>[^ ]+) container=(?P<container>[^ ]+) release=(?P<release>[^ ]+) msg=(?P<msg>.*)$'
+            parse_from: body
+            if: 'body matches "^AGENT_FORWARD "'
+            on_error: drop
+            timestamp:
+              parse_from: attributes.ts
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999999999Z07:00'
+          - type: move
+            from: attributes.msg
+            to: body
+            if: 'body matches "^AGENT_FORWARD "'
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      attributes/index:
+        actions:
+          - action: upsert
+            key: elasticsearch.index
+            from_attribute: release
+      batch: {}
+    exporters:
+      elasticsearch:
+        endpoints:
+          - http://elasticsearch.observability.svc.cluster.local:9200
+        mapping:
+          mode: none
+        logs_dynamic_index:
+          enabled: true
+    service:
+      extensions: [health_check]
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, attributes/index, batch]
+          exporters: [elasticsearch]

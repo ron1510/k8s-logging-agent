@@ -3,7 +3,9 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +22,8 @@ type Config struct {
 	KubeconfigContext    string        `yaml:"kubeconfigContext" env:"KUBECONFIG_CONTEXT"`
 	MaxConcurrentStreams int           `yaml:"maxConcurrentStreams" env:"MAX_CONCURRENT_STREAMS" env-default:"200"`
 	QueueSize            int           `yaml:"queueSize" env:"QUEUE_SIZE" env-default:"10000"`
+	QueueHighWatermark   int           `yaml:"queueHighWatermark" env:"QUEUE_HIGH_WATERMARK" env-default:"90"`
+	QueueThrottle        time.Duration `yaml:"queueThrottle" env:"QUEUE_THROTTLE" env-default:"1ms"`
 	BatchSize            int           `yaml:"batchSize" env:"BATCH_SIZE" env-default:"200"`
 	BatchTimeout         time.Duration `yaml:"batchTimeout" env:"BATCH_TIMEOUT" env-default:"2s"`
 	MaxLineBytes         int           `yaml:"maxLineBytes" env:"MAX_LINE_BYTES" env-default:"1048576"`
@@ -29,6 +33,9 @@ type Config struct {
 	MetricsInterval      time.Duration `yaml:"metricsInterval" env:"METRICS_INTERVAL" env-default:"3s"`
 	LogLevel             string        `yaml:"logLevel" env:"LOG_LEVEL" env-default:"info"`
 	ServiceName          string        `yaml:"serviceName" env:"SERVICE_NAME" env-default:"k8s-log-agent"`
+	PodName              string        `yaml:"podName" env:"POD_NAME"`
+	ShardTotal           int           `yaml:"shardTotal" env:"SHARD_TOTAL" env-default:"1"`
+	ShardOrdinal         int           `yaml:"shardOrdinal" env:"SHARD_ORDINAL" env-default:"-1"`
 }
 
 // LabelMap parses "k=v,k2=v2" into a map. YAML files may provide a map directly.
@@ -76,6 +83,15 @@ func Load() (Config, error) {
 		return Config{}, errors.New("namespace is required (set namespace or POD_NAMESPACE)")
 	}
 
+	if cfg.ShardOrdinal < 0 && cfg.ShardTotal > 1 {
+		if ord, ok := parseOrdinalFromPodName(cfg.PodName); ok {
+			cfg.ShardOrdinal = ord
+		}
+	}
+	if cfg.ShardOrdinal < 0 && cfg.ShardTotal <= 1 {
+		cfg.ShardOrdinal = 0
+	}
+
 	if err := validate(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -108,6 +124,12 @@ func validate(cfg *Config) error {
 	if cfg.QueueSize <= 0 {
 		return errors.New("queueSize must be > 0")
 	}
+	if cfg.QueueHighWatermark < 0 || cfg.QueueHighWatermark > 100 {
+		return errors.New("queueHighWatermark must be between 0 and 100")
+	}
+	if cfg.QueueThrottle < 0 {
+		return errors.New("queueThrottle must be >= 0")
+	}
 	if cfg.BatchSize <= 0 {
 		return errors.New("batchSize must be > 0")
 	}
@@ -132,5 +154,30 @@ func validate(cfg *Config) error {
 	if cfg.ServiceName == "" {
 		return errors.New("serviceName must be set")
 	}
+	if cfg.ShardTotal <= 0 {
+		return errors.New("shardTotal must be > 0")
+	}
+	if cfg.ShardTotal > 1 && cfg.ShardOrdinal < 0 {
+		return errors.New("shardOrdinal is required when shardTotal > 1 (set SHARD_ORDINAL or use StatefulSet-style pod names)")
+	}
+	if cfg.ShardOrdinal < 0 || cfg.ShardOrdinal >= cfg.ShardTotal {
+		return fmt.Errorf("shardOrdinal must be in [0, shardTotal), got shardOrdinal=%d shardTotal=%d", cfg.ShardOrdinal, cfg.ShardTotal)
+	}
 	return nil
+}
+
+func parseOrdinalFromPodName(name string) (int, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, false
+	}
+	i := strings.LastIndexByte(name, '-')
+	if i <= 0 || i == len(name)-1 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(name[i+1:])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

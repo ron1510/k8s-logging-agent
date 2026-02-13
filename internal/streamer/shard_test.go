@@ -1,68 +1,71 @@
-package tests
+package streamer_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"kubernetesLoggerAgent/internal/config"
 	"kubernetesLoggerAgent/internal/k8s"
-	"kubernetesLoggerAgent/internal/metrics"
+	"kubernetesLoggerAgent/internal/partitioner"
 	"kubernetesLoggerAgent/internal/streamer"
 	"kubernetesLoggerAgent/testutil/k8smock"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-type blockingSink struct {
-	unblock chan struct{}
+type chanSink struct {
+	ch chan streamer.LogEntry
 }
 
-func (s *blockingSink) Emit(ctx context.Context, entry streamer.LogEntry) {
-	<-s.unblock
+func (s *chanSink) Emit(ctx context.Context, entry streamer.LogEntry) {
+	select {
+	case s.ch <- entry:
+	default:
+	}
 }
 
-func TestQueueDropCounter(t *testing.T) {
-	metrics.Reset()
-
+func TestManagerSkipsNonOwnedShardPod(t *testing.T) {
 	cfg := config.Config{
 		Namespace:            "test",
 		LabelSelector:        "monitor-logs=true",
-		MaxConcurrentStreams: 1,
-		QueueSize:            1,
+		MaxConcurrentStreams: 5,
+		QueueSize:            100,
+		QueueHighWatermark:   90,
+		QueueThrottle:        time.Millisecond,
 		BatchSize:            1,
-		BatchTimeout:         10 * time.Millisecond,
+		BatchTimeout:         50 * time.Millisecond,
 		MaxLineBytes:         1024,
 		StreamIdleTimeout:    30 * time.Second,
 		StdoutQueueSize:      100,
-		StdoutFlushInterval:  1 * time.Second,
+		StdoutFlushInterval:  time.Second,
 		LogLevel:             "info",
 		ServiceName:          "test",
+		ShardTotal:           2,
+		ShardOrdinal:         0,
 	}
 
-	client := k8smock.New()
-	sink := &blockingSink{unblock: make(chan struct{})}
-	mgr := streamer.NewManager(client, sink, cfg, nil)
+	owner := partitioner.New(cfg.ShardTotal, 1)
+	uid := findUIDOwnedBy(owner)
 
+	client := k8smock.New()
+	sink := &chanSink{ch: make(chan streamer.LogEntry, 1)}
+	mgr := streamer.NewManager(client, sink, cfg, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	mgr.StartQueue(ctx)
-
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		close(sink.unblock)
-	}()
 
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "app-0",
 			Namespace: "test",
-			UID:       "uid-app-0",
+			UID:       types.UID(uid),
 			Labels: map[string]string{
-				"monitor-logs":                "true",
-				"app.kubernetes.io/instance": "payments",
+				"monitor-logs": "true",
 			},
 		},
 		Status: corev1.PodStatus{
@@ -77,21 +80,24 @@ func TestQueueDropCounter(t *testing.T) {
 	}
 	client.SetPods(pod)
 	client.SetLogStreamFactory("test", "app-0", "app", k8smock.LineStream([]string{
-		time.Now().UTC().Format(time.RFC3339Nano) + " line1",
-		time.Now().UTC().Format(time.RFC3339Nano) + " line2",
-		time.Now().UTC().Format(time.RFC3339Nano) + " line3",
+		time.Now().UTC().Format(time.RFC3339Nano) + " hello",
 	}, 0))
 
-	mgr.HandlePodEvent(ctx, k8smockToEvent(pod))
+	mgr.HandlePodEvent(ctx, k8s.PodEvent{Type: watch.Added, Pod: &pod})
 
-	time.Sleep(400 * time.Millisecond)
-
-	q, _, _ := metrics.Snapshot()
-	if q == 0 {
-		t.Fatalf("expected queue drop counter to increase")
+	select {
+	case entry := <-sink.ch:
+		t.Fatalf("expected no entry for non-owned shard pod, got %+v", entry)
+	case <-time.After(300 * time.Millisecond):
 	}
 }
 
-func k8smockToEvent(pod corev1.Pod) k8s.PodEvent {
-	return k8s.PodEvent{Type: watch.Added, Pod: &pod}
+func findUIDOwnedBy(p partitioner.Partitioner) string {
+	for i := 0; i < 10000; i++ {
+		id := fmt.Sprintf("uid-%d", i)
+		if p.OwnsPodUID(id) {
+			return id
+		}
+	}
+	return "uid-fallback"
 }

@@ -8,6 +8,8 @@ This document lists key runtime entrypoints, packages, and important interfaces/
    - `main()`: starts the real in-cluster/out-of-cluster agent process.
 2. `cmd/mock-runner/main.go`
    - `main()`: runs the agent with mock Kubernetes data.
+3. `cmd/perf-runner/main.go`
+   - `main()`: runs reproducible local performance scenarios.
 
 ## Configuration (`internal/config`)
 
@@ -22,7 +24,7 @@ Key environment variables:
 
 1. `NAMESPACE`, `POD_NAMESPACE`
 2. `LABEL_SELECTOR`, `ALLOW_LABELS`, `DENY_LABELS`
-3. `MAX_CONCURRENT_STREAMS`, `QUEUE_SIZE`
+3. `MAX_CONCURRENT_STREAMS`, `QUEUE_SIZE`, `QUEUE_HIGH_WATERMARK`, `QUEUE_THROTTLE`
 4. `BATCH_SIZE`, `BATCH_TIMEOUT`
 5. `MAX_LINE_BYTES`, `STREAM_IDLE_TIMEOUT`
 6. `STDOUT_QUEUE_SIZE`, `STDOUT_FLUSH_INTERVAL`
@@ -60,6 +62,14 @@ Behavior notes:
 2. Stream reconnection uses exponential backoff.
 3. Queue is bounded and drops under pressure (by design).
 4. Labels are attached as `k8s.pod.label.*` attributes.
+5. Optional sharding gates streams by pod UID ownership.
+
+## Sharding (`internal/partitioner`)
+
+1. `Partitioner`
+   - Deterministic ownership by `hash(podUID) % shardTotal`.
+2. `OwnsPodUID(podUID string) bool`
+   - Returns whether the current shard should handle the pod.
 
 ## Sinks (`internal/sink`)
 

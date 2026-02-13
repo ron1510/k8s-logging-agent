@@ -10,11 +10,13 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"kubernetesLoggerAgent/internal/config"
 	"kubernetesLoggerAgent/internal/k8s"
 	"kubernetesLoggerAgent/internal/metrics"
+	"kubernetesLoggerAgent/internal/partitioner"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +30,10 @@ import (
 type LogEntry struct {
 	Body       string
 	Timestamp  time.Time
+	Namespace  string
+	PodName    string
+	Container  string
+	Release    string
 	Attributes []attribute.KeyValue
 }
 
@@ -60,6 +66,8 @@ type streamState struct {
 	containerName string
 	restartCount  int32
 	labels        map[string]string
+	attributes    []attribute.KeyValue
+	releaseName   string
 }
 
 // Manager tracks active streams and emits entries to a sink.
@@ -73,6 +81,11 @@ type Manager struct {
 	queue    chan LogEntry
 	sem      chan struct{}
 	shutdown chan struct{}
+
+	dropLogInterval time.Duration
+	dropLogLastNsec atomic.Int64
+	dropLogCount    atomic.Uint64
+	partitioner     partitioner.Partitioner
 }
 
 // NewManager constructs a Manager with the provided dependencies.
@@ -89,6 +102,9 @@ func NewManager(client k8s.Client, sink Sink, cfg config.Config, logger *slog.Lo
 		queue:    make(chan LogEntry, cfg.QueueSize),
 		sem:      make(chan struct{}, cfg.MaxConcurrentStreams),
 		shutdown: make(chan struct{}),
+
+		dropLogInterval: time.Second,
+		partitioner:     partitioner.New(cfg.ShardTotal, cfg.ShardOrdinal),
 	}
 }
 
@@ -181,6 +197,10 @@ func (m *Manager) HandlePodEvent(ctx context.Context, ev k8s.PodEvent) {
 	if ev.Pod == nil {
 		return
 	}
+	if !m.partitioner.OwnsPodUID(string(ev.Pod.UID)) {
+		m.stopPodStreams(ev.Pod)
+		return
+	}
 	if !matchLabels(ev.Pod.Labels, map[string]string(m.cfg.AllowLabels), map[string]string(m.cfg.DenyLabels)) {
 		m.stopPodStreams(ev.Pod)
 		return
@@ -202,6 +222,15 @@ func (m *Manager) ensurePodStreams(ctx context.Context, pod *corev1.Pod) {
 		if status.State.Running == nil {
 			continue
 		}
+		release := strings.TrimSpace(pod.Labels["app.kubernetes.io/instance"])
+		if release == "" {
+			m.logger.Warn("dropping container log stream: missing helm release label",
+				"namespace", pod.Namespace,
+				"pod", pod.Name,
+				"container", status.Name,
+				"required_label", "app.kubernetes.io/instance")
+			continue
+		}
 		key := streamKey{podUID: string(pod.UID), containerName: status.Name}
 		m.mu.Lock()
 		if _, ok := m.active[key]; ok {
@@ -218,7 +247,9 @@ func (m *Manager) ensurePodStreams(ctx context.Context, pod *corev1.Pod) {
 			containerName: status.Name,
 			restartCount:  status.RestartCount,
 			labels:        copyMap(pod.Labels),
+			releaseName:   "logs-" + release,
 		}
+		state.attributes = buildAttributes(state)
 		m.active[key] = state
 		m.mu.Unlock()
 
@@ -242,7 +273,6 @@ func (m *Manager) stopPodStreams(pod *corev1.Pod) {
 func (m *Manager) streamContainer(ctx context.Context, st *streamState) {
 	m.acquire()
 	defer m.release()
-
 	bo := newBackoff()
 	var lastTS *time.Time
 
@@ -317,13 +347,17 @@ func (m *Manager) streamContainer(ctx context.Context, st *streamState) {
 				entry := LogEntry{
 					Body:       msg,
 					Timestamp:  ts,
-					Attributes: m.buildAttributes(st),
+					Namespace:  st.namespace,
+					PodName:    st.podName,
+					Container:  st.containerName,
+					Release:    st.releaseName,
+					Attributes: st.attributes,
 				}
+				m.maybeThrottleOnHighWatermark(ctx)
 				select {
 				case m.queue <- entry:
 				default:
-					metrics.IncQueueDrop()
-					m.logger.Warn("log queue full, dropping line", "namespace", st.namespace, "pod", st.podName, "container", st.containerName)
+					m.recordQueueDrop(st)
 				}
 			case <-idleCh:
 				m.logger.Warn("log stream idle timeout", "namespace", st.namespace, "pod", st.podName, "container", st.containerName)
@@ -363,8 +397,25 @@ func (m *Manager) release() {
 	<-m.sem
 }
 
+// QueueDepth returns the current number of buffered entries.
+func (m *Manager) QueueDepth() int {
+	return len(m.queue)
+}
+
+// QueueCapacity returns the configured queue capacity.
+func (m *Manager) QueueCapacity() int {
+	return cap(m.queue)
+}
+
+// ActiveStreamCount returns the number of currently tracked streams.
+func (m *Manager) ActiveStreamCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.active)
+}
+
 // buildAttributes builds K8s attributes for a log record.
-func (m *Manager) buildAttributes(st *streamState) []attribute.KeyValue {
+func buildAttributes(st *streamState) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		attribute.String("k8s.namespace.name", st.namespace),
 		attribute.String("k8s.pod.name", st.podName),
@@ -503,4 +554,46 @@ func copyMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+func (m *Manager) maybeThrottleOnHighWatermark(ctx context.Context) {
+	thresholdPct := m.cfg.QueueHighWatermark
+	if thresholdPct <= 0 || m.cfg.QueueThrottle <= 0 {
+		return
+	}
+	capacity := cap(m.queue)
+	if capacity <= 0 {
+		return
+	}
+	if len(m.queue)*100 < capacity*thresholdPct {
+		return
+	}
+	wait(ctx, m.cfg.QueueThrottle)
+}
+
+func (m *Manager) recordQueueDrop(st *streamState) {
+	metrics.IncQueueDrop()
+	count := m.dropLogCount.Add(1)
+	interval := m.dropLogInterval
+	if interval <= 0 {
+		return
+	}
+	now := time.Now().UnixNano()
+	last := m.dropLogLastNsec.Load()
+	if now-last < interval.Nanoseconds() {
+		return
+	}
+	if m.dropLogLastNsec.CompareAndSwap(last, now) {
+		dropped := m.dropLogCount.Swap(0)
+		if dropped == 0 {
+			dropped = count
+		}
+		m.logger.Warn("log queue drops",
+			"dropped", dropped,
+			"queue_depth", len(m.queue),
+			"queue_capacity", cap(m.queue),
+			"namespace", st.namespace,
+			"pod", st.podName,
+			"container", st.containerName)
+	}
 }

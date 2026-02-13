@@ -50,7 +50,8 @@ func TestManagerStreamsLog(t *testing.T) {
 			Namespace: "test",
 			UID:       "uid-app-0",
 			Labels: map[string]string{
-				"monitor-logs": "true",
+				"monitor-logs":                "true",
+				"app.kubernetes.io/instance": "payments",
 			},
 		},
 		Status: corev1.PodStatus{

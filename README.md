@@ -110,8 +110,12 @@ Primary env vars:
 - `DENY_LABELS`
 - `MAX_CONCURRENT_STREAMS`
 - `QUEUE_SIZE`
+- `QUEUE_HIGH_WATERMARK`
+- `QUEUE_THROTTLE`
 - `BATCH_SIZE`
 - `BATCH_TIMEOUT`
+- `SHARD_TOTAL`
+- `SHARD_ORDINAL`
 - `LOG_LEVEL`
 - `SERVICE_NAME`
 
@@ -152,6 +156,7 @@ docker build -t k8s-logging-agent:dev .
 - Usage guide: `docs/USAGE.md`
 - Architecture/details: `docs/OVERVIEW.md`
 - API/module reference: `docs/REFERENCE.md`
+- Performance benchmarking: `docs/PERF.md`
 
 ## Contributing and Security
 

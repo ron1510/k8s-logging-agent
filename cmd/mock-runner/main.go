@@ -39,7 +39,7 @@ func main() {
 	cfg.Namespace = "mock"
 	cfg.LabelSelector = "monitor-logs=true"
 	cfg.MaxConcurrentStreams = 50
-	cfg.QueueSize = 2000
+	cfg.QueueSize = 20000
 	cfg.LogLevel = "debug"
 	cfg.ServiceName = "k8s-log-agent-mock"
 
@@ -53,8 +53,9 @@ func main() {
 			Namespace: "mock",
 			UID:       "uid-app-0",
 			Labels: map[string]string{
-				"monitor-logs": "true",
-				"system":       "payments",
+				"monitor-logs":               "true",
+				"system":                     "payments",
+				"app.kubernetes.io/instance": "yes2",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -81,8 +82,9 @@ func main() {
 			Namespace: "mock",
 			UID:       "uid-worker-0",
 			Labels: map[string]string{
-				"monitor-logs": "true",
-				"system":       "billing",
+				"monitor-logs":               "true",
+				"system":                     "billing",
+				"app.kubernetes.io/instance": "yes",
 			},
 		},
 		Spec: corev1.PodSpec{

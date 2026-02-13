@@ -62,6 +62,9 @@ spec:
           {{- end }}
           env:
             {{- toYaml .Values.env | nindent 12 }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           volumeMounts:
             - name: {{ .Values.sharedVolume.name }}
               mountPath: {{ .Values.sharedVolume.mountPath }}

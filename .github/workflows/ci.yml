@@ -21,6 +21,12 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Perf smoke
+        run: |
+          OUTPUT=$(go run ./cmd/perf-runner --scenarios small --timeout 20s --repeat 1)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q '^small,1,ok,'
+
   helm-lint:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-payments
+  labels:
+    app: release-payments
+    monitor-logs: "true"
+    app.kubernetes.io/instance: payments
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: release-payments
+  template:
+    metadata:
+      labels:
+        app: release-payments
+        monitor-logs: "true"
+        app.kubernetes.io/instance: payments
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              i=0
+              while true; do
+                echo "payments line=$i ts=$(date -Iseconds)"
+                i=$((i+1))
+                sleep 2
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-billing
+  labels:
+    app: release-billing
+    monitor-logs: "true"
+    app.kubernetes.io/instance: billing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: release-billing
+  template:
+    metadata:
+      labels:
+        app: release-billing
+        monitor-logs: "true"
+        app.kubernetes.io/instance: billing
+    spec:
+      containers:
+        - name: logger
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              i=0
+              while true; do
+                echo "billing line=$i ts=$(date -Iseconds)"
+                i=$((i+1))
+                sleep 3
+              done
+
