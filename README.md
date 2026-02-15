@@ -16,6 +16,7 @@ This agent is useful when you need:
 - Backpressure-aware streaming from the Kubernetes API
 - Enriched log lines with pod/container/namespace context
 - A simple sidecar collector path for local and cluster testing
+- Optional JSON log parsing in collector (`collector.parseJsonLogs`)
 
 ## Architecture
 

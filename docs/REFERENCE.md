@@ -29,6 +29,7 @@ Key environment variables:
 5. `MAX_LINE_BYTES`, `STREAM_IDLE_TIMEOUT`
 6. `STDOUT_QUEUE_SIZE`, `STDOUT_FLUSH_INTERVAL`
 7. `METRICS_INTERVAL`, `LOG_LEVEL`, `SERVICE_NAME`
+8. `collector.parseJsonLogs` (Helm value, default `false`)
 
 ## Kubernetes Layer (`internal/k8s`)
 
@@ -76,7 +77,7 @@ Behavior notes:
 ## Sinks (`internal/sink`)
 
 1. `Stdout`
-   - Emits `AGENT_FORWARD` lines with `workload=<index>`.
+   - Emits `AGENT_FORWARD` lines with `workload=<index>` and raw `msg=<line>`.
 2. `NewStdout(cfg, logger)`
 
 ## Metrics (`internal/metrics`)

@@ -22,6 +22,25 @@ collector:
         start_at: end
         include_file_path: true
         include_file_name: true
+        operators:
+          - type: regex_parser
+            regex: '^AGENT_FORWARD ts=(?P<ts>[^ ]+) ns=(?P<ns>[^ ]+) pod=(?P<pod>[^ ]+) container=(?P<container>[^ ]+) workload=(?P<workload>[^ ]+) msg=(?P<msg>.*)$'
+            parse_from: body
+            on_error: drop
+            timestamp:
+              parse_from: attributes.ts
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999999999Z07:00'
+          - type: move
+            from: attributes.msg
+            to: body
+          {{- if .Values.collector.parseJsonLogs }}
+          - type: json_parser
+            parse_from: body
+            parse_to: body
+            if: 'body matches "^\\s*[\\{\\[]"'
+            on_error: send
+          {{- end }}
     processors:
       memory_limiter:
         check_interval: 5s
@@ -40,6 +59,7 @@ collector:
           receivers: [filelog]
           processors: [memory_limiter, batch]
           exporters: [otlp]
+  parseJsonLogs: false
 
 sharedVolume:
   name: agent-logs

@@ -6,7 +6,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +68,7 @@ func buildLine(entry streamer.LogEntry) string {
 		b.WriteString("unknown")
 	}
 	b.WriteString(" msg=")
-	b.WriteString(strconv.Quote(entry.Body))
+	b.WriteString(entry.Body)
 	b.WriteByte('\n')
 	return b.String()
 }
