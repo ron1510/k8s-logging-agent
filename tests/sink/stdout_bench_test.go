@@ -1,9 +1,10 @@
-package sink
+package sink_test
 
 import (
 	"testing"
 	"time"
 
+	"kubernetesLoggerAgent/internal/sink"
 	"kubernetesLoggerAgent/internal/streamer"
 )
 
@@ -18,6 +19,6 @@ func BenchmarkBuildLine(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = buildLine(entry)
+		_ = sink.BuildLineForTest(entry)
 	}
 }

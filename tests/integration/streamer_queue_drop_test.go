@@ -1,4 +1,4 @@
-package tests
+package integration
 
 import (
 	"context"
@@ -61,18 +61,16 @@ func TestQueueDropCounter(t *testing.T) {
 			Namespace: "test",
 			UID:       "uid-app-0",
 			Labels: map[string]string{
-				"monitor-logs":                "true",
+				"monitor-logs":               "true",
 				"app.kubernetes.io/instance": "payments",
 			},
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodRunning,
-			ContainerStatuses: []corev1.ContainerStatus{
-				{
-					Name:  "app",
-					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
-				},
-			},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "app",
+				State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+			}},
 		},
 	}
 	client.SetPods(pod)
@@ -82,7 +80,7 @@ func TestQueueDropCounter(t *testing.T) {
 		time.Now().UTC().Format(time.RFC3339Nano) + " line3",
 	}, 0))
 
-	mgr.HandlePodEvent(ctx, k8smockToEvent(pod))
+	mgr.HandlePodEvent(ctx, k8s.PodEvent{Type: watch.Added, Pod: &pod})
 
 	time.Sleep(400 * time.Millisecond)
 
@@ -90,8 +88,4 @@ func TestQueueDropCounter(t *testing.T) {
 	if q == 0 {
 		t.Fatalf("expected queue drop counter to increase")
 	}
-}
-
-func k8smockToEvent(pod corev1.Pod) k8s.PodEvent {
-	return k8s.PodEvent{Type: watch.Added, Pod: &pod}
 }

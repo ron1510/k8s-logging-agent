@@ -67,7 +67,7 @@ type streamState struct {
 	restartCount  int32
 	labels        map[string]string
 	attributes    []attribute.KeyValue
-	releaseName   string
+	workloadIndex string
 }
 
 // Manager tracks active streams and emits entries to a sink.
@@ -222,15 +222,7 @@ func (m *Manager) ensurePodStreams(ctx context.Context, pod *corev1.Pod) {
 		if status.State.Running == nil {
 			continue
 		}
-		release := strings.TrimSpace(pod.Labels["app.kubernetes.io/instance"])
-		if release == "" {
-			m.logger.Warn("dropping container log stream: missing helm release label",
-				"namespace", pod.Namespace,
-				"pod", pod.Name,
-				"container", status.Name,
-				"required_label", "app.kubernetes.io/instance")
-			continue
-		}
+		workloadIndex := deriveWorkloadIndex(pod)
 		key := streamKey{podUID: string(pod.UID), containerName: status.Name}
 		m.mu.Lock()
 		if _, ok := m.active[key]; ok {
@@ -247,7 +239,7 @@ func (m *Manager) ensurePodStreams(ctx context.Context, pod *corev1.Pod) {
 			containerName: status.Name,
 			restartCount:  status.RestartCount,
 			labels:        copyMap(pod.Labels),
-			releaseName:   "logs-" + release,
+			workloadIndex: workloadIndex,
 		}
 		state.attributes = buildAttributes(state)
 		m.active[key] = state
@@ -350,7 +342,7 @@ func (m *Manager) streamContainer(ctx context.Context, st *streamState) {
 					Namespace:  st.namespace,
 					PodName:    st.podName,
 					Container:  st.containerName,
-					Release:    st.releaseName,
+					Release:    st.workloadIndex,
 					Attributes: st.attributes,
 				}
 				m.maybeThrottleOnHighWatermark(ctx)
@@ -554,6 +546,110 @@ func copyMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+// ParseLogLineForTest exposes parseLogLine for external benchmark/tests modules.
+func ParseLogLineForTest(line string) (time.Time, string) {
+	return parseLogLine(line)
+}
+
+// ReadLineForTest exposes readLine for external benchmark/tests modules.
+func ReadLineForTest(r *bufio.Reader, maxBytes int) (string, error) {
+	return readLine(r, maxBytes)
+}
+
+func deriveWorkloadIndex(pod *corev1.Pod) string {
+	name := deriveWorkloadName(pod)
+	return "logs-" + sanitizeIndexToken(name)
+}
+
+func deriveWorkloadName(pod *corev1.Pod) string {
+	if pod == nil {
+		return "unknown"
+	}
+	for _, owner := range pod.OwnerReferences {
+		kind := strings.ToLower(strings.TrimSpace(owner.Kind))
+		refName := strings.TrimSpace(owner.Name)
+		if kind == "" || refName == "" {
+			continue
+		}
+		switch kind {
+		case "replicaset":
+			if dep := deploymentFromReplicaSet(refName); dep != "" {
+				return "deploy-" + dep
+			}
+			return "replicaset-" + refName
+		case "statefulset", "daemonset", "job", "cronjob":
+			return kind + "-" + refName
+		default:
+			return kind + "-" + refName
+		}
+	}
+	if v := strings.TrimSpace(pod.Labels["app.kubernetes.io/name"]); v != "" {
+		return "app-" + v
+	}
+	if v := strings.TrimSpace(pod.Labels["app"]); v != "" {
+		return "app-" + v
+	}
+	if pod.Name != "" {
+		return "pod-" + pod.Name
+	}
+	return "unknown"
+}
+
+func deploymentFromReplicaSet(rsName string) string {
+	rsName = strings.TrimSpace(rsName)
+	if rsName == "" {
+		return ""
+	}
+	i := strings.LastIndexByte(rsName, '-')
+	if i <= 0 || i == len(rsName)-1 {
+		return ""
+	}
+	suffix := rsName[i+1:]
+	if len(suffix) < 6 || len(suffix) > 12 || !isHexLower(suffix) {
+		return ""
+	}
+	return rsName[:i]
+}
+
+func isHexLower(s string) bool {
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func sanitizeIndexToken(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	lastDash := false
+	for _, r := range s {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "unknown"
+	}
+	if len(out) > 120 {
+		out = out[:120]
+	}
+	return out
 }
 
 func (m *Manager) maybeThrottleOnHighWatermark(ctx context.Context) {

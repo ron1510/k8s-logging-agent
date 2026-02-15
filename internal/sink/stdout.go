@@ -62,7 +62,7 @@ func buildLine(entry streamer.LogEntry) string {
 	b.WriteString(entry.PodName)
 	b.WriteString(" container=")
 	b.WriteString(entry.Container)
-	b.WriteString(" release=")
+	b.WriteString(" workload=")
 	if entry.Release != "" {
 		b.WriteString(entry.Release)
 	} else {
@@ -72,6 +72,11 @@ func buildLine(entry streamer.LogEntry) string {
 	b.WriteString(strconv.Quote(entry.Body))
 	b.WriteByte('\n')
 	return b.String()
+}
+
+// BuildLineForTest exposes buildLine for external benchmark/tests modules.
+func BuildLineForTest(entry streamer.LogEntry) string {
+	return buildLine(entry)
 }
 
 func (s *Stdout) start() {

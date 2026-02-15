@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s-logging-agent.fullname" . }}-headless
+  labels:
+    {{- include "k8s-logging-agent.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "k8s-logging-agent.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: health
+      port: 13133
+      targetPort: 13133

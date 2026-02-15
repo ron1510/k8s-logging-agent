@@ -65,7 +65,8 @@ func TestManagerSkipsNonOwnedShardPod(t *testing.T) {
 			Namespace: "test",
 			UID:       types.UID(uid),
 			Labels: map[string]string{
-				"monitor-logs": "true",
+				"monitor-logs":               "true",
+				"app.kubernetes.io/instance": "payments",
 			},
 		},
 		Status: corev1.PodStatus{

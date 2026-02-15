@@ -3,6 +3,7 @@ param(
   [string]$Namespace = "observability",
   [string]$ReleaseName = "k8s-logging-agent",
   [string]$ImageName = "k8s-logging-agent:dev",
+  [int]$ReplicaCount = 2,
   [switch]$RecreateCluster
 )
 
@@ -53,9 +54,10 @@ helm upgrade --install $ReleaseName deploy/helm/k8s-logging-agent `
   --set image.repository=$imageRepo `
   --set image.tag=$imageTag `
   --set image.pullPolicy=IfNotPresent `
+  --set replicaCount=$ReplicaCount `
   --set collector.image.tag=0.145.0
 
-kubectl -n $Namespace rollout status deploy/$ReleaseName --timeout=240s
+kubectl -n $Namespace rollout status statefulset/$ReleaseName --timeout=240s
 kubectl -n $Namespace apply -f deploy/sample-workloads.yaml
 
 Write-Host ""
@@ -65,3 +67,6 @@ Write-Host "Realtime logs:"
 Write-Host "  .\scripts\tail-logs.ps1 -Namespace $Namespace -Mode collector"
 Write-Host "  .\scripts\tail-logs.ps1 -Namespace $Namespace -Mode agent"
 Write-Host "  .\scripts\tail-logs.ps1 -Namespace $Namespace -Mode workloads"
+Write-Host ""
+Write-Host "Partitioner check:"
+Write-Host "  .\scripts\verify-partitioner.ps1 -Namespace $Namespace -ReleaseName $ReleaseName"

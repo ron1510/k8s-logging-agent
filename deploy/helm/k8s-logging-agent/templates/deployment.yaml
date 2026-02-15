@@ -1,14 +1,16 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "k8s-logging-agent.fullname" . }}
   labels:
     {{- include "k8s-logging-agent.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "k8s-logging-agent.fullname" . }}-headless
+  podManagementPolicy: Parallel
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   minReadySeconds: {{ .Values.minReadySeconds }}
-  strategy:
-    {{- toYaml .Values.strategy | nindent 4 }}
+  updateStrategy:
+    type: RollingUpdate
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
@@ -62,6 +64,8 @@ spec:
           {{- end }}
           env:
             {{- toYaml .Values.env | nindent 12 }}
+            - name: SHARD_TOTAL
+              value: {{ printf "%d" (int .Values.replicaCount) | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

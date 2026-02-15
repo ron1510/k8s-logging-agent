@@ -5,6 +5,7 @@ A Kubernetes log agent written in Go, designed to discover pods by label and for
 The repository includes:
 - The Go agent (`cmd/agent`)
 - A sidecar OpenTelemetry Collector pattern using shared volume + `tee`
+- Single-release horizontal sharding with StatefulSet ordinals
 - A production-ready Helm chart
 - Local end-to-end scripts for fast testing on `kind`
 
@@ -19,10 +20,11 @@ This agent is useful when you need:
 ## Architecture
 
 1. Agent streams logs from matching pods via Kubernetes API.
-2. Agent writes logs to stdout.
-3. Docker entrypoint uses `tee` to also write stdout to `/var/log/agent/agent.log`.
-4. Collector sidecar tails that file from a shared `emptyDir`.
-5. Collector exports logs (OTLP for production, `debug` exporter for local).
+2. Each agent pod owns a partition of pods by `hash(podUID) % SHARD_TOTAL`.
+3. Agent writes `AGENT_FORWARD ... workload=<index> ...` lines to stdout.
+4. Docker entrypoint uses `tee` to also write stdout to `/var/log/agent/agent.log`.
+5. Collector sidecar tails that file from a shared `emptyDir`.
+6. Collector exports logs to the configured backend (debug exporter by default in local mode).
 
 ## Repository Layout
 
@@ -30,6 +32,7 @@ This agent is useful when you need:
 - `internal/*` core packages (config, k8s, streamer, sink, metrics)
 - `deploy/helm/k8s-logging-agent` Helm chart
 - `scripts/local-e2e.ps1` local cluster setup + deploy + sample workloads
+- `scripts/verify-partitioner.ps1` shard ownership verification helper
 - `scripts/tail-logs.ps1` real-time logs helper
 - `deploy/sample-workloads.yaml` test deployments
 - `docs/` module-level docs
@@ -139,10 +142,31 @@ Helm defaults include:
 
 ## Development
 
-Run tests:
+Run app module tests:
 
 ```powershell
 go test ./...
+```
+
+Run dedicated tests module:
+
+```powershell
+cd tests
+go test ./...
+```
+
+## Partitioner Focus
+
+Bring up local sharded environment:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\local-e2e.ps1 -ReplicaCount 2
+```
+
+Verify shard ownership:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-partitioner.ps1
 ```
 
 Build local image:

@@ -7,7 +7,8 @@ This document describes the current architecture and runtime behavior of `k8s-lo
 1. The agent watches pods in a target namespace.
 2. Matching pods are selected by label policy (`LABEL_SELECTOR`, allow/deny labels).
 3. The agent streams container logs via Kubernetes API.
-4. The agent emits structured `AGENT_FORWARD` lines to stdout.
+4. Multi-replica agents partition pods deterministically (`hash(podUID) % SHARD_TOTAL`).
+5. The agent emits structured `AGENT_FORWARD` lines to stdout (`workload=<index>`).
 5. In container runtime, stdout is duplicated to `/var/log/agent/agent.log` using `tee`.
 6. A sidecar OpenTelemetry Collector tails that file from a shared volume and exports logs.
 
@@ -34,6 +35,7 @@ This document describes the current architecture and runtime behavior of `k8s-lo
 2. One goroutine per active container stream handles log tailing.
 3. One queue worker emits entries to the sink.
 4. A semaphore limits maximum concurrent streams.
+5. StatefulSet ordinal selects shard ownership for each replica.
 
 ## Reliability Model
 

@@ -19,7 +19,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests
-        run: go test ./...
+        run: |
+          go test ./...
+          cd tests
+          go test ./...
 
       - name: Perf smoke
         run: |

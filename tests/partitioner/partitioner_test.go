@@ -1,9 +1,13 @@
-package partitioner
+package partitioner_test
 
-import "testing"
+import (
+	"testing"
+
+	"kubernetesLoggerAgent/internal/partitioner"
+)
 
 func TestOwnsPodUIDSingleShard(t *testing.T) {
-	p := New(1, 0)
+	p := partitioner.New(1, 0)
 	if !p.OwnsPodUID("any-uid") {
 		t.Fatalf("expected single shard to own all pods")
 	}
@@ -14,7 +18,7 @@ func TestOwnsPodUIDExactlyOneOwner(t *testing.T) {
 	uid := "uid-1234"
 	owners := 0
 	for i := 0; i < total; i++ {
-		if New(total, i).OwnsPodUID(uid) {
+		if partitioner.New(total, i).OwnsPodUID(uid) {
 			owners++
 		}
 	}

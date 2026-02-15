@@ -246,8 +246,8 @@ func runScenario(sc scenario, logger *slog.Logger) (result, error) {
 				Namespace: "perf",
 				UID:       typesUID(i),
 				Labels: map[string]string{
-					"monitor-logs":                "true",
-					"suite":                       sc.name,
+					"monitor-logs":               "true",
+					"suite":                      sc.name,
 					"app.kubernetes.io/instance": sc.name,
 				},
 			},

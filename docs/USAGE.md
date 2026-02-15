@@ -27,6 +27,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\local-e2e.ps1 `
   -Namespace observability `
   -ReleaseName k8s-logging-agent `
   -ImageName k8s-logging-agent:dev `
+  -ReplicaCount 2 `
   -RecreateCluster
 ```
 
@@ -43,7 +44,7 @@ What the script does:
 
 ```powershell
 kubectl -n observability get pods -o wide
-kubectl -n observability rollout status deploy/k8s-logging-agent
+kubectl -n observability rollout status statefulset/k8s-logging-agent
 kubectl -n observability get deploy,pods -l monitor-logs=true -o wide
 ```
 
@@ -111,31 +112,33 @@ powershell -ExecutionPolicy Bypass -File .\deploy\helm\install-production.ps1 `
   -OtlpEndpoint otel-gateway.observability.svc.cluster.local:4317
 ```
 
-## 7. Horizontal Sharding
+## 7. Horizontal Sharding (Single Release)
 
 The agent supports static shard ownership by pod UID hash:
 
 - `SHARD_TOTAL`: total shard count
 - `SHARD_ORDINAL`: this pod's shard index (0-based)
 
-Notes:
+The chart now uses a StatefulSet. For `replicaCount = N`, each pod gets a stable ordinal and the chart sets:
 
-- If `SHARD_TOTAL=1`, sharding is effectively disabled.
-- If `SHARD_TOTAL>1`, you must provide `SHARD_ORDINAL` or run with StatefulSet-style pod names that end with `-<ordinal>`.
-- Standard Deployment pod names are not stable ordinals, so for multi-replica sharding use explicit ordinals or StatefulSet.
+- `SHARD_TOTAL=N`
+- `SHARD_ORDINAL` inferred from pod name suffix (`...-0`, `...-1`, ...)
 
-Example (manual static shards):
+Scale example:
 
 ```powershell
-helm upgrade --install k8s-logging-agent-a deploy/helm/k8s-logging-agent `
+helm upgrade --install k8s-logging-agent deploy/helm/k8s-logging-agent `
   --namespace observability `
-  --set env[3].name=SHARD_TOTAL --set env[3].value=2 `
-  --set env[4].name=SHARD_ORDINAL --set env[4].value=0
+  --set replicaCount=2
+```
 
-helm upgrade --install k8s-logging-agent-b deploy/helm/k8s-logging-agent `
-  --namespace observability `
-  --set env[3].name=SHARD_TOTAL --set env[3].value=2 `
-  --set env[4].name=SHARD_ORDINAL --set env[4].value=1
+Validate partition ownership:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-partitioner.ps1 `
+  -Namespace observability `
+  -ReleaseName k8s-logging-agent `
+  -SinceSeconds 90
 ```
 
 ## 8. Troubleshooting

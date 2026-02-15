@@ -46,7 +46,7 @@ Key environment variables:
 ## Streaming Core (`internal/streamer`)
 
 1. `LogEntry`
-   - Normalized log envelope (`Body`, `Timestamp`, attributes).
+   - Normalized log envelope (`Body`, `Timestamp`, `Namespace`, `PodName`, `Container`, `Release`, attributes).
 2. `Sink` and `BatchSink`
    - Output contracts for single and batched emit.
 3. `Manager`
@@ -63,6 +63,7 @@ Behavior notes:
 3. Queue is bounded and drops under pressure (by design).
 4. Labels are attached as `k8s.pod.label.*` attributes.
 5. Optional sharding gates streams by pod UID ownership.
+6. Workload identity is derived from owner references for index routing.
 
 ## Sharding (`internal/partitioner`)
 
@@ -70,11 +71,12 @@ Behavior notes:
    - Deterministic ownership by `hash(podUID) % shardTotal`.
 2. `OwnsPodUID(podUID string) bool`
    - Returns whether the current shard should handle the pod.
+3. Helm chart runs StatefulSet replicas and uses pod ordinal for shard ownership.
 
 ## Sinks (`internal/sink`)
 
 1. `Stdout`
-   - Emits `AGENT_FORWARD` lines.
+   - Emits `AGENT_FORWARD` lines with `workload=<index>`.
 2. `NewStdout(cfg, logger)`
 
 ## Metrics (`internal/metrics`)
@@ -104,5 +106,13 @@ Behavior notes:
    - `scripts/tail-logs.ps1`
 4. Sample workloads:
    - `deploy/sample-workloads.yaml`
+5. Shard ownership verifier:
+   - `scripts/verify-partitioner.ps1`
 
 For end-user commands and operational runbooks, see `docs/USAGE.md`.
+
+## Tests Module
+
+1. Tests live in dedicated module `tests/` (`kubernetesLoggerAgent/tests`).
+2. Run app-module tests: `go test ./...`
+3. Run tests-module tests: `cd tests && go test ./...`
